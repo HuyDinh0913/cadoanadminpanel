@@ -1,7 +1,14 @@
 import axios from 'axios';
 
-// API_BASE_URL bây giờ là '/api' vì Vite Proxy sẽ xử lý (như trong README.md)
-const API_BASE_URL = '/api';
+// Lấy URL từ biến môi trường. 
+// - Nếu đang chạy dev (local), biến này chưa có -> mặc định dùng '' (để kết hợp với /api phía dưới thành proxy).
+// - Nếu trên Vercel, biến này sẽ là domain backend của bạn.
+const DOMAIN = import.meta.env.VITE_API_URL || ''; 
+
+// API_BASE_URL sẽ là:
+// Local: '/api'
+// Vercel: 'https://cadoanmancoiproject.onrender.com/api'
+const API_BASE_URL = `${DOMAIN}/api`;
 
 // Tạo một instance axios
 const apiClient = axios.create({
