@@ -1,227 +1,103 @@
 import axios from 'axios';
 
-// Lấy URL từ biến môi trường. 
-// - Nếu đang chạy dev (local), biến này chưa có -> mặc định dùng '' (để kết hợp với /api phía dưới thành proxy).
-// - Nếu trên Vercel, biến này sẽ là domain backend của bạn.
-const DOMAIN = import.meta.env.VITE_API_URL || ''; 
-
-// API_BASE_URL sẽ là:
-// Local: '/api'
-// Vercel: 'https://cadoanmancoiproject.onrender.com/api'
+// 1. Cấu hình URL (Giữ nguyên logic bạn vừa sửa)
+const DOMAIN = import.meta.env.VITE_API_URL || '';
 const API_BASE_URL = `${DOMAIN}/api`;
 
-// Tạo một instance axios
+// 2. Khởi tạo Axios Instance
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  // timeout: 10000, // (Tùy chọn) Hủy request nếu quá 10 giây
 });
 
-// (Trong dự án thật, bạn sẽ dùng Interceptors để đính kèm JWT Token
-// vào mỗi request sau khi đăng nhập)
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+// 3. Interceptor cho REQUEST: Tự động đính kèm Token
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-
-/**
- * Hàm gọi API chung để xử lý lỗi
- */
-const apiCall = async (url, options) => {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    // Xử lý các lỗi HTTP
-    if (response.status === 204) return null; // Cho trường hợp DELETE thành công
-    const errorData = await response.json().catch(() => ({ message: 'Lỗi không xác định' }));
-    throw new Error(errorData.message || 'Đã xảy ra lỗi');
+// 4. Interceptor cho RESPONSE: Xử lý dữ liệu trả về và lỗi chung
+apiClient.interceptors.response.use(
+  (response) => {
+    // Nếu server trả về 204 No Content, trả về null (giống logic cũ của bạn)
+    if (response.status === 204) return null;
+    
+    // Trả về trực tiếp data để bên component đỡ phải gọi .data lần nữa
+    return response.data;
+  },
+  (error) => {
+    // Xử lý lỗi tập trung
+    // Ví dụ: Nếu lỗi 401 (Hết hạn token), có thể tự động logout
+    if (error.response && error.response.status === 401) {
+      // console.log('Token hết hạn hoặc không hợp lệ');
+      // localStorage.removeItem('authToken');
+      // window.location.href = '/login'; 
+    }
+    
+    // Trả về lỗi để component hiển thị thông báo
+    // Lấy message từ server trả về hoặc dùng message mặc định
+    const errorMessage = error.response?.data?.message || error.message || 'Đã xảy ra lỗi';
+    return Promise.reject(new Error(errorMessage));
   }
-  // Tránh lỗi JSON parse khi body trống (ví dụ 204 No Content)
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
+);
+
+// --- CÁC HÀM GỌI API (Đã được rút gọn) ---
+
+// --- Auth ---
+export const login = (username, password) => {
+  return apiClient.post('/auth/login', { username, password });
 };
 
-// --- Dịch vụ xác thực (Auth) ---
-export const login = async (username, password) => {
-  // // Đây là MOCK API, thay thế bằng fetch thật
-  // if (username === 'admin' && password === 'admin123') {
-  //   return { success: true, token: 'mock-token-string' };
-  // }
-  
-  // Logic fetch thật (ví dụ)
-  return apiCall(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  // throw new Error('Sai tên đăng nhập hoặc mật khẩu'); // Đã bị vô hiệu hóa
-};
-
-// --- Dịch vụ Bài hát (Songs) ---
+// --- Bài hát (Songs) ---
 export const getSongs = (params = {}) => {
-  
-  // 1. Tạo Query String từ các tham số 
-  const queryString = Object.keys(params)
-    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
-    .join('&');
+  // Axios tự động chuyển object params thành query string (?page=1&search=...)
+  return apiClient.get('/songs', { params });
+};
+export const createSong = (data) => apiClient.post('/songs', data);
+export const updateSong = (id, data) => apiClient.put(`/songs/${id}`, data);
+export const deleteSong = (id) => apiClient.delete(`/songs/${id}`);
 
-  // 2. Xây dựng URL cuối cùng
-  const url = `${API_BASE_URL}/songs${queryString ? '?' + queryString : ''}`;
+// --- Sự kiện (Events) ---
+export const getEvents = () => apiClient.get('/events');
+export const createEvent = (data) => apiClient.post('/events', data);
+export const updateEvent = (id, data) => apiClient.put(`/events/${id}`, data);
+export const deleteEvent = (id) => apiClient.delete(`/events/${id}`);
 
-  // 3. Gọi apiCall
-  return apiCall(url, { method: 'GET' });
-};
+// --- Tin Tức (News) ---
+export const getNews = () => apiClient.get('/news');
+export const createNews = (data) => apiClient.post('/news', data);
+export const updateNews = (id, data) => apiClient.put(`/news/${id}`, data);
+export const deleteNews = (id) => apiClient.delete(`/news/${id}`);
 
-export const createSong = (songData) => {
-  return apiCall(`${API_BASE_URL}/songs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(songData),
-  });
-};
+// --- Ban Điều Hành (Committee) ---
+export const getCommittee = () => apiClient.get('/committee');
+export const createCommitteeMember = (data) => apiClient.post('/committee', data);
+export const updateCommitteeMember = (id, data) => apiClient.put(`/committee/${id}`, data);
+export const deleteCommitteeMember = (id) => apiClient.delete(`/committee/${id}`);
 
-export const updateSong = (id, songData) => {
-  return apiCall(`${API_BASE_URL}/songs/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(songData),
-  });
-};
+// --- Tài Liệu (Documents) ---
+export const getDocuments = () => apiClient.get('/documents');
+export const createDocument = (data) => apiClient.post('/documents', data);
+export const updateDocument = (id, data) => apiClient.put(`/documents/${id}`, data);
+export const deleteDocument = (id) => apiClient.delete(`/documents/${id}`);
 
-export const deleteSong = (id) => {
-  return apiCall(`${API_BASE_URL}/songs/${id}`, {
-    method: 'DELETE',
-  });
-};
-
-// --- Dịch vụ Sự kiện (Events) ---
-export const getEvents = () => {
-  return apiCall(`${API_BASE_URL}/events`, { method: 'GET' });
-};
-export const createEvent = (data) => {
-  return apiCall(`${API_BASE_URL}/events`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const updateEvent = (id, data) => {
-  return apiCall(`${API_BASE_URL}/events/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const deleteEvent = (id) => {
-  return apiCall(`${API_BASE_URL}/events/${id}`, { method: 'DELETE' });
-};
-
-// --- Dịch vụ Tin Tức (News) ---
-export const getNews = () => {
-  return apiCall(`${API_BASE_URL}/news`, { method: 'GET' });
-};
-export const createNews = (data) => {
-  return apiCall(`${API_BASE_URL}/news`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const updateNews = (id, data) => {
-  return apiCall(`${API_BASE_URL}/news/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const deleteNews = (id) => {
-  return apiCall(`${API_BASE_URL}/news/${id}`, { method: 'DELETE' });
-};
-
-// --- Dịch vụ Ban Điều Hành (Committee) ---
-export const getCommittee = () => {
-  return apiCall(`${API_BASE_URL}/committee`, { method: 'GET' });
-};
-export const createCommitteeMember = (data) => {
-  return apiCall(`${API_BASE_URL}/committee`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const updateCommitteeMember = (id, data) => {
-  return apiCall(`${API_BASE_URL}/committee/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const deleteCommitteeMember = (id) => {
-  return apiCall(`${API_BASE_URL}/committee/${id}`, { method: 'DELETE' });
-};
-
-// --- Dịch vụ Tài Liệu (Documents) ---
-export const getDocuments = () => {
-  return apiCall(`${API_BASE_URL}/documents`, { method: 'GET' });
-};
-export const createDocument = (data) => {
-  return apiCall(`${API_BASE_URL}/documents`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const updateDocument = (id, data) => {
-  return apiCall(`${API_BASE_URL}/documents/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const deleteDocument = (id) => {
-  return apiCall(`${API_BASE_URL}/documents/${id}`, { method: 'DELETE' });
-};
-
-// --- Dịch vụ Thư Viện Ảnh (Gallery) ---
+// --- Thư Viện Ảnh (Gallery) ---
 // Albums
-export const getAlbums = () => {
-  return apiCall(`${API_BASE_URL}/albums`, { method: 'GET' });
-};
-export const createAlbum = (data) => {
-  return apiCall(`${API_BASE_URL}/albums`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const updateAlbum = (id, data) => {
-  return apiCall(`${API_BASE_URL}/albums/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-};
-export const deleteAlbum = (id) => {
-  return apiCall(`${API_BASE_URL}/albums/${id}`, { method: 'DELETE' });
-};
+export const getAlbums = () => apiClient.get('/albums');
+export const createAlbum = (data) => apiClient.post('/albums', data);
+export const updateAlbum = (id, data) => apiClient.put(`/albums/${id}`, data);
+export const deleteAlbum = (id) => apiClient.delete(`/albums/${id}`);
 
-// Photos (thuộc về album)
-export const getPhotosForAlbum = (albumId) => {
-  return apiCall(`${API_BASE_URL}/albums/${albumId}/photos`, { method: 'GET' });
-};
-export const addPhotoToAlbum = (albumId, photoData) => {
-  return apiCall(`${API_BASE_URL}/albums/${albumId}/photos`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(photoData),
-  });
-};
-export const deletePhoto = (photoId) => {
-  return apiCall(`${API_BASE_URL}/photos/${photoId}`, { method: 'DELETE' });
-};
+// Photos
+export const getPhotosForAlbum = (albumId) => apiClient.get(`/albums/${albumId}/photos`);
+export const addPhotoToAlbum = (albumId, photoData) => apiClient.post(`/albums/${albumId}/photos`, photoData);
+export const deletePhoto = (photoId) => apiClient.delete(`/photos/${photoId}`);
